@@ -1,0 +1,240 @@
+# =============================================================================
+# Model Manager Deployment - Web UI for Managing Ollama Models
+# =============================================================================
+# This deployment provides a web interface to:
+#   - View and manage Ollama models
+#   - Monitor GPU usage and VRAM allocation
+#   - Pull new models from the Ollama registry
+#   - Delete unused models to free up storage
+#
+# Prerequisites:
+#   - Namespace 'model-hosting' created
+#   - ServiceAccount 'model-manager' created (for K8s API access)
+#   - Ollama deployment running with 'ollama-service' exposed
+#
+# Usage:
+#   kubectl apply -f model-manager-deployment.yaml
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-manager
+  namespace: model-hosting
+  labels:
+    app: model-manager
+    component: web-ui
+    version: latest
+spec:
+  # ---------------------------------------------------------------------------
+  # Replica Configuration
+  # ---------------------------------------------------------------------------
+  # 2 replicas for high availability
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: model-manager
+
+  # ---------------------------------------------------------------------------
+  # Update Strategy
+  # ---------------------------------------------------------------------------
+  # Rolling update with zero downtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # Allow 1 extra pod during update
+      maxUnavailable: 0    # Keep all pods available during update
+
+  template:
+    metadata:
+      labels:
+        app: model-manager
+        component: web-ui
+    spec:
+      # -----------------------------------------------------------------------
+      # Service Account
+      # -----------------------------------------------------------------------
+      # Required for accessing Kubernetes API (pod listing, etc.)
+      serviceAccountName: model-manager
+
+      # -----------------------------------------------------------------------
+      # Termination Grace Period
+      # -----------------------------------------------------------------------
+      terminationGracePeriodSeconds: 30
+
+      # -----------------------------------------------------------------------
+      # Pod Anti-Affinity
+      # -----------------------------------------------------------------------
+      # Prefer scheduling pods on different nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - model-manager
+                topologyKey: kubernetes.io/hostname
+
+      # -----------------------------------------------------------------------
+      # Container Configuration
+      # -----------------------------------------------------------------------
+      containers:
+        - name: model-manager
+          image: arnoldt04/model-manager:latest
+          imagePullPolicy: Always
+
+          # -------------------------------------------------------------------
+          # Environment Variables
+          # -------------------------------------------------------------------
+          env:
+            # Kubernetes namespace for API calls
+            - name: KUBERNETES_NAMESPACE
+              value: "model-hosting"
+            
+            # Flask environment
+            - name: FLASK_ENV
+              value: "production"
+            
+            # Ollama service URL (Kubernetes internal DNS)
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama-service.model-hosting.svc.cluster.local:11434"
+
+          # -------------------------------------------------------------------
+          # Port Configuration
+          # -------------------------------------------------------------------
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # -------------------------------------------------------------------
+          # Health Checks
+          # -------------------------------------------------------------------
+          # Liveness: Restart pod if service becomes unresponsive
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness: Only receive traffic when ready to serve
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # -------------------------------------------------------------------
+          # Resource Configuration
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "500m"
+
+          # -------------------------------------------------------------------
+          # Lifecycle Hooks
+          # -------------------------------------------------------------------
+          # PreStop: Allow time for load balancer to drain connections
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 15
+
+---
+# =============================================================================
+# Model Manager Service - Expose Web UI
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-manager-service
+  namespace: model-hosting
+  labels:
+    app: model-manager
+spec:
+  type: NodePort
+  selector:
+    app: model-manager
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      nodePort: 30081    # Access via http://<node-ip>:30081
+      protocol: TCP
+
+---
+# =============================================================================
+# Model Manager ServiceAccount - For Kubernetes API Access
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: model-manager
+  namespace: model-hosting
+  labels:
+    app: model-manager
+
+---
+# =============================================================================
+# Model Manager Role - Permissions for Pod/Service Access
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: model-manager-role
+  namespace: model-hosting
+  labels:
+    app: model-manager
+rules:
+  # Read pods (for status monitoring)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  
+  # Read services (for Ollama discovery)
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  
+  # Read/write configmaps (for configuration storage)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+
+---
+# =============================================================================
+# Model Manager RoleBinding - Bind Role to ServiceAccount
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: model-manager-rolebinding
+  namespace: model-hosting
+  labels:
+    app: model-manager
+subjects:
+  - kind: ServiceAccount
+    name: model-manager
+    namespace: model-hosting
+roleRef:
+  kind: Role
+  name: model-manager-role
+  apiGroup: rbac.authorization.k8s.io

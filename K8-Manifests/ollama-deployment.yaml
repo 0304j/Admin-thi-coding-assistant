@@ -1,0 +1,211 @@
+# =============================================================================
+# Ollama Deployment - GPU-Accelerated LLM Inference Server
+# =============================================================================
+# This deployment runs multiple Ollama instances sharing the same GPU via
+# NVIDIA GPU time-slicing. All pods share a common PVC for model storage.
+#
+# Prerequisites:
+#   - NVIDIA GPU Operator installed with time-slicing enabled
+#   - PersistentVolumeClaim 'ollama-pvc' created
+#   - Namespace 'model-hosting' created
+#
+# Usage:
+#   kubectl apply -f ollama-deployment.yaml
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: model-hosting
+  labels:
+    app: ollama
+    component: inference-server
+    version: latest
+spec:
+  # ---------------------------------------------------------------------------
+  # Replica Configuration
+  # ---------------------------------------------------------------------------
+  # 3 replicas for high availability and load balancing
+  # Each replica uses GPU time-slicing (requires time-slicing ConfigMap)
+  replicas: 3
+  
+  selector:
+    matchLabels:
+      app: ollama
+  
+  # ---------------------------------------------------------------------------
+  # Update Strategy
+  # ---------------------------------------------------------------------------
+  # Rolling update ensures zero downtime during deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # Allow 1 extra pod during update
+      maxUnavailable: 0    # Keep all pods available during update
+
+  template:
+    metadata:
+      labels:
+        app: ollama
+        component: inference-server
+    spec:
+      # -----------------------------------------------------------------------
+      # Termination Grace Period
+      # -----------------------------------------------------------------------
+      # Allow 60 seconds for in-flight requests to complete before termination
+      terminationGracePeriodSeconds: 60
+
+      # -----------------------------------------------------------------------
+      # Container Configuration
+      # -----------------------------------------------------------------------
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        imagePullPolicy: Always
+        
+        # Start Ollama server
+        command:
+          - ollama
+          - serve
+
+        # ---------------------------------------------------------------------
+        # Environment Variables
+        # ---------------------------------------------------------------------
+        env:
+          # Bind to all interfaces
+          - name: OLLAMA_HOST
+            value: "0.0.0.0:11434"
+          
+          # Model storage path (shared PVC)
+          - name: OLLAMA_MODELS
+            value: "/shared-models"
+          
+          # Keep models loaded for 5 minutes after last request
+          - name: OLLAMA_KEEP_ALIVE
+            value: "5m"
+          
+          # Maximum models to keep loaded simultaneously
+          - name: OLLAMA_MAX_LOADED_MODELS
+            value: "3"
+          
+          # Number of parallel requests per model
+          - name: OLLAMA_NUM_PARALLEL
+            value: "4"
+          
+          # Enable flash attention for better performance
+          - name: OLLAMA_FLASH_ATTENTION
+            value: "1"
+
+        # ---------------------------------------------------------------------
+        # Port Configuration
+        # ---------------------------------------------------------------------
+        ports:
+          - name: http
+            containerPort: 11434
+            protocol: TCP
+
+        # ---------------------------------------------------------------------
+        # Health Checks
+        # ---------------------------------------------------------------------
+        # Liveness: Restart pod if Ollama becomes unresponsive
+        livenessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Readiness: Only receive traffic when ready to serve
+        readinessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+
+        # ---------------------------------------------------------------------
+        # Resource Configuration
+        # ---------------------------------------------------------------------
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "1"
+            nvidia.com/gpu: "1"    # Request 1 GPU (time-sliced)
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+            nvidia.com/gpu: "1"    # Limit to 1 GPU (time-sliced)
+
+        # ---------------------------------------------------------------------
+        # Volume Mounts
+        # ---------------------------------------------------------------------
+        volumeMounts:
+          # Shared model storage (all pods access same models)
+          - name: ollama-storage
+            mountPath: /shared-models
+          
+          # Local cache for runtime data
+          - name: ollama-cache
+            mountPath: /root/.ollama
+
+      # -----------------------------------------------------------------------
+      # Volumes
+      # -----------------------------------------------------------------------
+      volumes:
+        # Persistent storage for models (shared across all pods)
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+        
+        # Ephemeral cache (per-pod)
+        - name: ollama-cache
+          emptyDir:
+            sizeLimit: 2Gi
+
+---
+# =============================================================================
+# Ollama Service - Load Balancer for Ollama Pods
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: model-hosting
+  labels:
+    app: ollama
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+
+---
+# =============================================================================
+# Ollama PVC - Shared Model Storage
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: model-hosting
+  labels:
+    app: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: local-path
+
+
+  

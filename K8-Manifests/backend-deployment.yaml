@@ -1,0 +1,279 @@
+# =============================================================================
+# Backend Deployment - Flask API Server for THI Coding Assistant
+# =============================================================================
+# This deployment provides the API backend that:
+#   - Routes chat requests to Ollama pods (primary)
+#   - Falls back to Groq API when Ollama is unavailable
+#   - Lists available models from Ollama
+#   - Provides health endpoints for Kubernetes probes
+#
+# Architecture:
+#   VS Code Extension → Backend (this) → Ollama Pods
+#                                     ↘ Groq API (fallback)
+#
+# Prerequisites:
+#   - Namespace 'backend' created
+#   - Secret 'backend-secrets' with GROQ_API_KEY
+#   - Ollama deployment running in 'model-hosting' namespace
+#
+# Usage:
+#   kubectl apply -f backend-deployment.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backend
+  labels:
+    app: backend
+    environment: production
+
+---
+# =============================================================================
+# Backend Secret - API Keys (Apply separately or use sealed-secrets)
+# =============================================================================
+# NOTE: Replace 'YOUR_GROQ_API_KEY' with your actual Groq API key
+# For production, use sealed-secrets or external secrets operator
+#
+# Create manually with:
+#   kubectl create secret generic backend-secrets -n backend \
+#     --from-literal=GROQ_API_KEY='gsk_your_key_here'
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secrets
+  namespace: backend
+  labels:
+    app: backend
+type: Opaque
+stringData:
+  GROQ_API_KEY: "YOUR_GROQ_API_KEY"  # Replace with actual key
+
+---
+# =============================================================================
+# Backend Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: backend
+  labels:
+    app: backend
+    component: api-server
+    version: latest
+spec:
+  # ---------------------------------------------------------------------------
+  # Replica Configuration
+  # ---------------------------------------------------------------------------
+  # 2 replicas for high availability and load balancing
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: backend
+
+  # ---------------------------------------------------------------------------
+  # Update Strategy
+  # ---------------------------------------------------------------------------
+  # Rolling update ensures zero downtime during deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1          # Allow 1 extra pod during update
+      maxUnavailable: 0    # Keep all pods available during update
+
+  template:
+    metadata:
+      labels:
+        app: backend
+        component: api-server
+    spec:
+      # -----------------------------------------------------------------------
+      # Termination Grace Period
+      # -----------------------------------------------------------------------
+      terminationGracePeriodSeconds: 30
+
+      # -----------------------------------------------------------------------
+      # Pod Anti-Affinity (Optional)
+      # -----------------------------------------------------------------------
+      # Prefer scheduling pods on different nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - backend
+                topologyKey: kubernetes.io/hostname
+
+      # -----------------------------------------------------------------------
+      # Container Configuration
+      # -----------------------------------------------------------------------
+      containers:
+        - name: backend
+          image: arnoldt04/backend:latest
+          imagePullPolicy: Always
+
+          # -------------------------------------------------------------------
+          # Environment Variables
+          # -------------------------------------------------------------------
+          env:
+            # Groq API key for fallback (from secret)
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: GROQ_API_KEY
+
+            # Ollama service URL (Kubernetes internal DNS)
+            - name: OLLAMA_URL
+              value: "http://ollama-service.model-hosting.svc.cluster.local:11434"
+
+            # Default model to use if none specified
+            - name: DEFAULT_OLLAMA_MODEL
+              value: "qwen2.5-coder:7b"
+
+            # Timeout for Ollama requests (seconds)
+            - name: OLLAMA_TIMEOUT
+              value: "120"
+
+            # Flask environment
+            - name: FLASK_ENV
+              value: "production"
+
+          # -------------------------------------------------------------------
+          # Port Configuration
+          # -------------------------------------------------------------------
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          # -------------------------------------------------------------------
+          # Health Checks
+          # -------------------------------------------------------------------
+          # Liveness: Restart pod if service becomes unresponsive
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness: Only receive traffic when ready to serve
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Startup: Allow time for initial startup
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12  # 60 seconds max startup time
+
+          # -------------------------------------------------------------------
+          # Resource Configuration
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # -------------------------------------------------------------------
+          # Lifecycle Hooks
+          # -------------------------------------------------------------------
+          # PreStop: Allow time for load balancer to drain connections
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 10
+
+---
+# =============================================================================
+# Backend Service - Expose API to External Access
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: backend
+  labels:
+    app: backend
+spec:
+  type: NodePort
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      nodePort: 30080    # Access via http://<node-ip>:30080
+      protocol: TCP
+
+---
+# =============================================================================
+# Backend NetworkPolicy - Allow traffic from extension and to Ollama
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-network-policy
+  namespace: backend
+  labels:
+    app: backend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow incoming traffic on port 3000
+    - ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow traffic to Ollama in model-hosting namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: model-hosting
+      ports:
+        - protocol: TCP
+          port: 11434
+    # Allow traffic to Groq API (external HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
