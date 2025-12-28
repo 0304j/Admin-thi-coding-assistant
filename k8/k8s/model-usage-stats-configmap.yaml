@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-usage-stats
+  namespace: model-hosting
+data:
+  usage_data: '{}'

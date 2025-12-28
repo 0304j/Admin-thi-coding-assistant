@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: model-health-check
+  namespace: model-hosting
+  labels:
+    app: model-health-check
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 3600
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: model-health-check
+        spec:
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 30
+          containers:
+            - name: health-checker
+              image: alpine:3.18
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - apk add --no-cache curl jq >/dev/null 2>&1 && /scripts/check-models.sh
+              env:
+                - name: OLLAMA_URL
+                  value: http://ollama-service.model-hosting.svc.cluster.local:11434
+                - name: MODEL_MANAGER_URL
+                  value: http://model-manager-service.model-hosting.svc.cluster.local:8080
+                - name: AUTO_PULL
+                  value: "true"
+                - name: TEST_INFERENCE
+                  value: "false"
+                - name: REPORT_STATUS
+                  value: "false"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+          volumes:
+            - name: script
+              configMap:
+                name: model-health-script
+                defaultMode: 0755

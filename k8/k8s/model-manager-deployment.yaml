@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-manager
+  namespace: model-hosting
+  labels:
+    app: model-manager
+    release: model-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-manager
+      release: model-manager
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: model-manager
+        release: model-manager
+      annotations:
+        deployment.restart: forcepull
+    spec:
+      serviceAccountName: model-manager
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - model-manager
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: model-manager
+          image: arnoldt04/model-manager:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: KUBERNETES_NAMESPACE
+              value: model-hosting
+            - name: FLASK_ENV
+              value: production
+            - name: OLLAMA_BASE_URL
+              value: http://ollama-service.model-hosting:11434
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 15

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: model-hosting
+  labels:
+    app: ollama
+    release: ollama
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ollama
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: ollama
+        release: ollama
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: Always
+          command:
+            - ollama
+            - serve
+          ports:
+            - name: api
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /shared-models
+            - name: OLLAMA_KEEP_ALIVE
+              value: 5m
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "3"
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: 4000m
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 2
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /shared-models
+            - name: ollama-cache
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+        - name: ollama-cache
+          emptyDir: {}

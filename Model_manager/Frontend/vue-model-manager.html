@@ -1,0 +1,2132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Model Manager</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status-connected {
+            background: #27ae60;
+            color: white;
+        }
+
+        .status-disconnected {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            padding: 30px;
+        }
+
+        /* Hide Deploy Model section - keep only GPU Status and Ollama Management */
+        .main-content > .card:nth-child(2) {
+            display: none;
+        }
+
+        /* Make Ollama card take full width */
+        .main-content > .card:nth-child(3) {
+            grid-column: 1 / -1;
+        }
+
+        .gpu-status-card {
+            background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+            color: white;
+            border: none;
+        }
+
+        .gpu-status-card h2 {
+            color: white;
+            margin-bottom: 20px;
+        }
+
+        .gpu-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .metric {
+            display: flex;
+            flex-direction: column;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+        }
+
+        .metric-label {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-bottom: 2px;
+        }
+
+        .metric-value {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .metric-value.available {
+            color: #2ecc71;
+        }
+
+        .metric-value.allocated {
+            color: #e74c3c;
+        }
+
+        .vram-bar {
+            position: relative;
+            height: 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .vram-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2ecc71 0%, #f39c12 70%, #e74c3c 100%);
+            transition: width 0.3s ease;
+        }
+
+        .vram-bar-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 600;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .recommendations {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        .recommendations h4 {
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: white;
+        }
+
+        .recommendations ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .recommendations li {
+            font-size: 13px;
+            margin-bottom: 5px;
+            opacity: 0.9;
+        }
+
+        .memory-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        .memory-info .fraction-info {
+            color: #2c3e50;
+            font-weight: 500;
+        }
+
+        .vram-estimate {
+            color: #7f8c8d;
+            font-size: 12px;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .gpu-metrics {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .gpu-metrics {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+        }
+
+        .card h2 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #34495e;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a67d8;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .deployments-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .deployments-table th,
+        .deployments-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .deployments-table th {
+            background: #f1f3f4;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .deployments-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .status-running {
+            color: #27ae60;
+            font-weight: 500;
+        }
+
+        .status-pending {
+            color: #f39c12;
+            font-weight: 500;
+        }
+
+        .status-failed {
+            color: #e74c3c;
+            font-weight: 500;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .alert i {
+            margin-right: 8px;
+        }
+
+        /* Toast Notification Styles */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 400px;
+        }
+
+        .toast {
+            padding: 14px 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .toast-success {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: white;
+        }
+
+        .toast-error {
+            background: linear-gradient(135deg, #c0392b, #e74c3c);
+            color: white;
+        }
+
+        .toast-info {
+            background: linear-gradient(135deg, #2980b9, #3498db);
+            color: white;
+        }
+
+        .toast-warning {
+            background: linear-gradient(135deg, #d35400, #e67e22);
+            color: white;
+        }
+
+        .toast i {
+            margin-right: 10px;
+            font-size: 18px;
+        }
+
+        .toast-message {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .toast-close {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            padding: 0 0 0 10px;
+            opacity: 0.7;
+            font-size: 16px;
+        }
+
+        .toast-close:hover {
+            opacity: 1;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+
+        .toast.removing {
+            animation: slideOut 0.3s ease forwards;
+        }
+
+        /* Confirmation Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            animation: scaleIn 0.2s ease;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .modal-header i {
+            font-size: 24px;
+            margin-right: 12px;
+        }
+
+        .modal-header.warning i {
+            color: #e74c3c;
+        }
+
+        .modal-header.info i {
+            color: #3498db;
+        }
+
+        .modal-header h3 {
+            font-size: 18px;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .modal-body {
+            color: #555;
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .modal-btn-cancel {
+            background: #ecf0f1;
+            color: #2c3e50;
+        }
+
+        .modal-btn-cancel:hover {
+            background: #bdc3c7;
+        }
+
+        .modal-btn-confirm {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .modal-btn-confirm:hover {
+            background: #c0392b;
+        }
+
+        /* Pulled date styling */
+        .pulled-date {
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            color: #555;
+        }
+
+        /* Compact GPU Summary Bar */
+        .gpu-summary-bar {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .gpu-summary-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .gpu-summary-item i {
+            color: #3498db;
+        }
+
+        .gpu-divider {
+            color: #7f8c8d;
+            margin: 0 2px;
+        }
+
+        .gpu-available {
+            color: #2ecc71;
+            margin-left: 5px;
+            font-size: 12px;
+        }
+
+        .gpu-mini-bar {
+            flex: 1;
+            max-width: 200px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .gpu-mini-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2ecc71 0%, #f39c12 70%, #e74c3c 100%);
+            transition: width 0.3s ease;
+        }
+
+        /* VRAM Badge for model table */
+        .vram-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .vram-badge i {
+            font-size: 10px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0.9);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .deployment-row.selected {
+            background: #e3f2fd !important;
+        }
+
+        .model-info {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+            margin: 0 2px;
+        }
+
+        /* Model State Indicators */
+        .model-state-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .state-running {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            border: 1px solid #2ecc71;
+        }
+
+        .state-loading {
+            background: rgba(243, 156, 18, 0.2);
+            color: #f39c12;
+            border: 1px solid #f39c12;
+        }
+
+        .state-stopped {
+            background: rgba(149, 165, 166, 0.2);
+            color: #95a5a6;
+            border: 1px solid #95a5a6;
+        }
+
+        .state-error {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+        }
+
+        .state-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .state-running .state-dot {
+            background: #2ecc71;
+        }
+
+        .state-loading .state-dot {
+            background: #f39c12;
+        }
+
+        .state-stopped .state-dot {
+            background: #95a5a6;
+        }
+
+        .state-error .state-dot {
+            background: #e74c3c;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Model Pull Progress Bar */
+        .progress-container {
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 20px;
+            background: linear-gradient(90deg, #3498db 0%, #2ecc71 50%, #2ecc71 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .actions {
+                flex-direction: column;
+            }
+        }
+
+        /* Model Usage Ranking Table Styles */
+        .usage-ranking-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            border: none;
+            grid-column: 1 / -1;
+        }
+
+        .usage-ranking-card h2 {
+            color: white;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ranking-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .ranking-stat {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-align: center;
+            flex: 1;
+        }
+
+        .ranking-stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #3498db;
+        }
+
+        .ranking-stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 4px;
+        }
+
+        .ranking-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .ranking-table th,
+        .ranking-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .ranking-table th {
+            background: rgba(255, 255, 255, 0.05);
+            font-weight: 600;
+            color: #aaa;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .ranking-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .rank-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        .rank-1 {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            color: #000;
+        }
+
+        .rank-2 {
+            background: linear-gradient(135deg, #C0C0C0, #A0A0A0);
+            color: #000;
+        }
+
+        .rank-3 {
+            background: linear-gradient(135deg, #CD7F32, #B87333);
+            color: #fff;
+        }
+
+        .rank-other {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        .usage-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .usage-bar {
+            flex: 1;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .usage-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .usage-percent {
+            font-weight: 600;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .model-name-cell {
+            font-weight: 500;
+        }
+
+        .last-used-cell {
+            color: #888;
+            font-size: 12px;
+        }
+
+        .no-usage-message {
+            text-align: center;
+            padding: 40px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .no-usage-message i {
+            font-size: 48px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+
+        .refresh-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+            color: #888;
+            margin-left: auto;
+        }
+
+        .refresh-indicator.active {
+            color: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Toast Notifications Container -->
+        <div class="toast-container">
+            <div 
+                v-for="toast in toasts" 
+                :key="toast.id" 
+                class="toast" 
+                :class="'toast-' + toast.type"
+            >
+                <i class="fas" :class="{
+                    'fa-check-circle': toast.type === 'success',
+                    'fa-times-circle': toast.type === 'error',
+                    'fa-info-circle': toast.type === 'info',
+                    'fa-exclamation-triangle': toast.type === 'warning'
+                }"></i>
+                <span class="toast-message">{{ toast.message }}</span>
+                <button class="toast-close" @click="removeToast(toast.id)">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Confirmation Modal -->
+        <div v-if="confirmModal.show" class="modal-overlay" @click.self="closeConfirmModal">
+            <div class="modal-content">
+                <div class="modal-header warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h3>{{ confirmModal.title }}</h3>
+                </div>
+                <div class="modal-body">
+                    {{ confirmModal.message }}
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-btn modal-btn-cancel" @click="closeConfirmModal">
+                        {{ confirmModal.cancelText }}
+                    </button>
+                    <button class="modal-btn modal-btn-confirm" @click="executeConfirm">
+                        {{ confirmModal.confirmText }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="header">
+                <h1>Kubernetes Model Manager</h1>
+                <div class="status-badge" :class="connectionStatus ? 'status-connected' : 'status-disconnected'">
+                    <i class="fas" :class="connectionStatus ? 'fa-check-circle' : 'fa-exclamation-circle'"></i>
+                    {{ connectionStatus ? 'Connected' : 'Disconnected' }}
+                </div>
+            </div>
+
+            <div class="main-content" style="display: block;">
+                <!-- GPU Status Summary - Compact inline version -->
+                <div class="gpu-summary-bar" v-if="gpuStatus.data">
+                    <div class="gpu-summary-item">
+                        <i class="fas fa-microchip"></i>
+                        <span>GPU: </span>
+                        <strong>{{ gpuStatus.data.gpu_info.allocated_vram_gb.toFixed(1) }}GB</strong>
+                        <span class="gpu-divider">/</span>
+                        <span>{{ gpuStatus.data.gpu_info.total_vram_gb.toFixed(1) }}GB</span>
+                        <span class="gpu-available">({{ gpuStatus.data.gpu_info.available_vram_gb.toFixed(1) }}GB free)</span>
+                    </div>
+                    <div class="gpu-mini-bar">
+                        <div class="gpu-mini-bar-fill" :style="{ width: gpuStatus.data.gpu_info.utilization_percent + '%' }"></div>
+                    </div>
+                </div>
+
+                <!-- Deploy Model Panel - HIDDEN (HuggingFace removed, using Ollama only) -->
+                <div class="card" style="display: none;">
+                    <h2><i class="fas fa-rocket"></i> Deploy New Model</h2>
+                    
+                    <div v-if="alert.message" class="alert" :class="'alert-' + alert.type">
+                        <i class="fas" :class="alert.type === 'success' ? 'fa-check' : alert.type === 'error' ? 'fa-times' : 'fa-info'"></i>
+                        {{ alert.message }}
+                    </div>
+
+                    <form @submit.prevent="deployModel">
+                        <div class="form-group">
+                            <label for="model-select">Model</label>
+                            <select id="model-select" v-model="selectedModel" class="form-control" required>
+                                <option value="">Select a model...</option>
+                                <option v-for="model in availableModels" :key="model.id" :value="model.id">
+                                    {{ model.name }} ({{ model.size }})
+                                </option>
+                            </select>
+                            <div v-if="selectedModelInfo" class="model-info">
+                                {{ selectedModelInfo.description }} | {{ selectedModelInfo.quantization || 'No quantization' }}
+                                <div v-if="estimatedVRAM" class="vram-estimate">
+                                    Estimated vRAM: ~{{ estimatedVRAM }}GB
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="deployment-name">Deployment Name</label>
+                            <input 
+                                type="text" 
+                                id="deployment-name"
+                                v-model="deploymentName" 
+                                class="form-control" 
+                                placeholder="e.g., starcoder-deploy"
+                                pattern="^[a-z0-9-]+$"
+                                title="Only lowercase letters, numbers, and hyphens allowed"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="gpu-memory">vRAM Allocation</label>
+                            <select id="gpu-memory" v-model="gpuMemory" class="form-control" @change="updateMemoryFraction">
+                                <option value="2">2 GB (13% of GPU)</option>
+                                <option value="4">4 GB (26% of GPU)</option>
+                                <option value="6">6 GB (39% of GPU)</option>
+                                <option value="8">8 GB (52% of GPU)</option>
+                                <option value="10">10 GB (65% of GPU)</option>
+                                <option value="12">12 GB (78% of GPU)</option>
+                                <option value="14">14 GB (91% of GPU)</option>
+                            </select>
+                            <div class="memory-info" v-if="gpuStatus.data">
+                                <span>
+                                    Available: {{ gpuStatus.data.gpu_info.available_vram_gb.toFixed(1) }}GB
+                                </span>
+                                <span class="fraction-info">
+                                    Memory Fraction: {{ (gpuMemory / 15.36).toFixed(3) }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="actions">
+                            <button type="button" @click="autoFillName" class="btn btn-secondary" :disabled="!selectedModel">
+                                <i class="fas fa-magic"></i> Auto-fill Name
+                            </button>
+                            <button type="button" @click="refreshGpuStatus" class="btn btn-info">
+                                <i class="fas fa-sync-alt"></i> Refresh GPU
+                            </button>
+                            <button type="submit" class="btn btn-primary" :disabled="deploying || !connectionStatus">
+                                <i class="fas fa-rocket"></i>
+                                {{ deploying ? 'Deploying...' : 'Deploy Model' }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Ollama Model Management Panel -->
+                <div class="card">
+                    <h2><i class="fas fa-llama"></i>  Ollama Model Management</h2>
+                    
+                    <!-- Add New Model -->
+                    <div class="form-group">
+                        <label for="ollama-model">Add New Model (Ollama Coding Models)</label>
+                        
+                        <!-- GGUF Models Dropdown -->
+                        <div class="actions" style="align-items: center; margin: 10px 0; gap: 10px;">
+                            <div style="flex: 1;">
+                                <select 
+                                    id="gguf-models"
+                                    v-model="selectedGGUFModel" 
+                                    class="form-control"
+                                    @change="onGGUFModelSelected"
+                                    :disabled="loadingGGUFModels"
+                                >
+                                    <option value="">{{ loadingGGUFModels ? 'Loading Ollama models...' : ' Select an Ollama coding model' }}</option>
+                                    <option v-for="model in ggufModels" :key="model.id" :value="model.id">
+                                        {{ model.name }} ({{ model.size }}) -  {{ model.likes }}
+                                    </option>
+                                </select>
+                            </div>
+                            <button 
+                                @click="pullOllamaModel" 
+                                class="btn btn-success" 
+                                :disabled="pullingOllamaModel || !newOllamaModel.trim()"
+                            >
+                                <i class="fas fa-download"></i>
+                                {{ pullingOllamaModel ? 'Pulling...' : 'Pull' }}
+                            </button>
+                        </div>
+
+                        <!-- Pull Progress Bar -->
+                        <div v-if="pullingOllamaModel" class="progress-container" style="margin-top: 10px;">
+                            <div class="progress-bar" :style="{ width: modelPullProgress + '%' }">
+                                {{ modelPullProgress }}%
+                            </div>
+                            <div class="progress-text">{{ modelPullStatus }}</div>
+                        </div>
+
+                        <!-- Manual Input Option -->
+                        <div class="actions" style="align-items: center; margin: 10px 0;">
+                            <input 
+                                id="ollama-model"
+                                v-model="newOllamaModel" 
+                                type="text" 
+                                class="form-control" 
+                                placeholder="Model name from dropdown or manually enter (e.g., mistral:7b, llama3.1:8b, deepseek-coder:6.7b)"
+                                style="flex: 1; margin-right: 10px;"
+                            >
+                        </div>
+                        <small style="color: #666; font-size: 12px;">
+                            You can pull models from Ollama's model repository or enter a custom model name
+                        </small>
+                    </div>
+
+                    <!-- Current Ollama Models -->
+                    <div class="form-group">
+                        <label>Currently Loaded Models</label>
+                        <div v-if="loadingOllamaModels" class="loading">
+                            <div class="spinner"></div>
+                            Loading Ollama models...
+                        </div>
+                        <div v-else-if="ollamaModels.length === 0" style="text-align: center; color: #666; padding: 20px;">
+                            No models loaded in Ollama
+                        </div>
+                        <div v-else class="deployments-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Model Name</th>
+                                        <th>Size</th>
+                                        <th>VRAM</th>
+                                        <th>Pulled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="model in ollamaModels" :key="model.name">
+                                        <td>
+                                            <strong>{{ model.name }}</strong>
+                                            <span class="model-state-badge" :class="'state-running'">
+                                                <span class="state-dot"></span>
+                                                Running
+                                            </span>
+                                        </td>
+                                        <td>{{ formatSize(model.size) }}</td>
+                                        <td>
+                                            <span class="vram-badge">
+                                                <i class="fas fa-memory"></i>
+                                                {{ estimateModelVRAM(model.size) }} GB
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="pulled-date">
+                                                <i class="fas fa-calendar-alt" style="color: #666; margin-right: 5px;"></i>
+                                                {{ formatDate(model.modified_at) }}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <button 
+                                                @click="testOllamaModel(model.name)" 
+                                                class="btn btn-info btn-sm"
+                                                :disabled="testingOllamaModel"
+                                            >
+                                                <i class="fas fa-play"></i> Test
+                                            </button>
+                                            <button 
+                                                @click="deleteOllamaModel(model.name)" 
+                                                class="btn btn-danger btn-sm"
+                                                :disabled="deletingOllamaModel"
+                                            >
+                                                <i class="fas fa-trash"></i> Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Ollama Test Results -->
+                    <div v-if="ollamaTestResult" class="alert alert-success">
+                        <h4><i class="fas fa-vial"></i> Test Result for {{ ollamaTestResult.model }}</h4>
+                        <p style="margin-top: 10px; white-space: pre-wrap; font-family: monospace;">{{ ollamaTestResult.response }}</p>
+                    </div>
+                </div>
+
+                <!-- Model Usage Ranking Panel -->
+                <div class="card usage-ranking-card">
+                    <h2>
+                        <i class="fas fa-chart-bar"></i> Model Usage Ranking
+                    </h2>
+
+                    <!-- Stats Summary -->
+                    <div class="ranking-stats" v-if="usageRanking.total_requests > 0">
+                        <div class="ranking-stat">
+                            <div class="ranking-stat-value">{{ usageRanking.total_requests }}</div>
+                            <div class="ranking-stat-label">Total Requests</div>
+                        </div>
+                        <div class="ranking-stat">
+                            <div class="ranking-stat-value">{{ usageRanking.models.length }}</div>
+                            <div class="ranking-stat-label">Models Used</div>
+                        </div>
+                        <div class="ranking-stat" v-if="topModel">
+                            <div class="ranking-stat-value" style="font-size: 16px;">{{ topModel.model }}</div>
+                            <div class="ranking-stat-label">Most Popular</div>
+                        </div>
+                    </div>
+
+                    <!-- Ranking Table -->
+                    <div v-if="loadingUsageRanking" class="loading">
+                        <div class="spinner"></div>
+                        Loading...
+                    </div>
+
+                    <div v-else-if="usageRanking.models.length === 0" class="no-usage-message">
+                        <i class="fas fa-chart-pie"></i>
+                        <div>No model usage recorded yet</div>
+                        <small>Click "Test" on a model above to record usage</small>
+                    </div>
+
+                    <table v-else class="ranking-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 80px;">Rank</th>
+                                <th>Model</th>
+                                <th style="width: 300px;">Usage %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="model in usageRanking.models" :key="model.model">
+                                <td>
+                                    <span class="rank-badge" :class="getRankClass(model.rank)">
+                                        {{ model.rank }}
+                                    </span>
+                                </td>
+                                <td class="model-name-cell">{{ model.model }}</td>
+                                <td>
+                                    <div class="usage-bar-container">
+                                        <div class="usage-bar">
+                                            <div class="usage-bar-fill" :style="{ width: model.usage_percent + '%' }"></div>
+                                        </div>
+                                        <span class="usage-percent">{{ model.usage_percent }}%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- Reset Button -->
+                    <div class="actions" style="margin-top: 15px;">
+                        <button @click="resetUsageStats" class="btn btn-secondary btn-sm" :disabled="usageRanking.total_requests === 0">
+                            <i class="fas fa-undo"></i> Reset Statistics
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Deployments List Panel - Hidden -->
+                <div class="card" style="display: none;">
+                    <h2><i class="fas fa-robot"></i> Deployed Models</h2>
+                    
+                    <div class="actions">
+                        <button @click="refreshDeployments" class="btn btn-success" :disabled="loading">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button @click="deleteSelected" class="btn btn-danger" :disabled="!selectedDeployment || deleting">
+                            <i class="fas fa-trash"></i>
+                            {{ deleting ? 'Deleting...' : 'Delete Selected' }}
+                        </button>
+                    </div>
+
+                    <div v-if="loading" class="loading">
+                        <div class="spinner"></div>
+                        Loading deployments...
+                    </div>
+
+                    <table v-else class="deployments-table">
+                        <thead>
+                            <tr>
+                                <th>Deployment</th>
+                                <th>Model</th>
+                                <th>Status</th>
+                                <th>Replicas</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-if="deployments.length === 0">
+                                <td colspan="4" style="text-align: center; color: #6c757d; padding: 40px;">
+                                    No deployments found
+                                </td>
+                            </tr>
+                            <tr 
+                                v-for="deployment in deployments" 
+                                :key="deployment.name"
+                                class="deployment-row"
+                                :class="{ selected: selectedDeployment === deployment.name }"
+                                @click="selectDeployment(deployment.name)"
+                                style="cursor: pointer;"
+                            >
+                                <td>{{ deployment.name }}</td>
+                                <td>
+                                    {{ deployment.model_id }}
+                                    <div class="model-info">
+                                        {{ formatModelName(deployment.model_id) }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <span :class="'status-' + deployment.status.toLowerCase()">
+                                        {{ deployment.status }}
+                                    </span>
+                                </td>
+                                <td>{{ deployment.ready_replicas }}/{{ deployment.desired_replicas }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    connectionStatus: false,
+                    selectedModel: '',
+                    deploymentName: '',
+                    gpuMemory: 8, // Changed to number for vRAM calculations
+                    selectedDeployment: null,
+                    deployments: [],
+                    loading: false,
+                    deploying: false,
+                    deleting: false,
+                    alert: { message: '', type: '' },
+                    gpuStatus: {
+                        data: null,
+                        loading: false,
+                        error: null
+                    },
+                    availableModels: [
+                        {
+                            id: 'TheBloke/starcoder2-7b-GPTQ',
+                            name: 'StarCoder2 7B GPTQ',
+                            size: '7B',
+                            description: 'Code generation model with GPTQ quantization',
+                            quantization: 'GPTQ'
+                        },
+                        {
+                            id: 'TheBloke/CodeLlama-7B-GPTQ',
+                            name: 'Code Llama 7B GPTQ',
+                            size: '7B',
+                            description: 'Meta\'s code generation model',
+                            quantization: 'GPTQ'
+                        },
+                        {
+                            id: 'TheBloke/CodeLlama-13B-GPTQ',
+                            name: 'Code Llama 13B GPTQ',
+                            size: '13B',
+                            description: 'Larger version of Meta\'s code model',
+                            quantization: 'GPTQ'
+                        },
+                        {
+                            id: 'TheBloke/CodeLlama-34B-GPTQ',
+                            name: 'Code Llama 34B GPTQ',
+                            size: '34B',
+                            description: 'Large code generation model',
+                            quantization: 'GPTQ'
+                        },
+                        {
+                            id: 'TheBloke/deepseek-coder-6.7b-instruct-GPTQ',
+                            name: 'DeepSeek Coder 6.7B Instruct GPTQ',
+                            size: '6.7B',
+                            description: 'Instruct-tuned coding model',
+                            quantization: 'GPTQ'
+                        },
+                        {
+                            id: 'TheBloke/WizardCoder-15B-V1.0-GPTQ',
+                            name: 'WizardCoder 15B GPTQ',
+                            size: '15B',
+                            description: 'Code generation specialist',
+                            quantization: 'GPTQ'
+                        },
+                        {
+                            id: 'microsoft/phi-2',
+                            name: 'Phi-2 (Quantized)',
+                            size: '2.7B',
+                            description: 'Small efficient coding model',
+                            quantization: 'int8'
+                        },
+                        {
+                            id: 'Qwen/Qwen2.5-Coder-7B-Instruct-GPTQ-Int4',
+                            name: 'Qwen2.5 Coder 7B GPTQ',
+                            size: '7B',
+                            description: 'Latest Qwen coding model',
+                            quantization: 'GPTQ-Int4'
+                        }
+                    ],
+                    // Ollama Management
+                    newOllamaModel: '',
+                    ollamaModels: [],
+                    loadingOllamaModels: false,
+                    pullingOllamaModel: false,
+                    modelPullProgress: 0,
+                    modelPullStatus: 'Preparing to pull...',
+                    deletingOllamaModel: false,
+                    testingOllamaModel: false,
+                    ollamaTestResult: null,
+                    // GGUF Models Management
+                    ggufModels: [],
+                    loadingGGUFModels: false,
+                    selectedGGUFModel: '',
+                    // Model Usage Ranking
+                    usageRanking: {
+                        total_requests: 0,
+                        models: [],
+                        timestamp: null
+                    },
+                    loadingUsageRanking: false,
+                    // Toast notifications
+                    toasts: [],
+                    toastIdCounter: 0,
+                    // Confirmation modal
+                    confirmModal: {
+                        show: false,
+                        title: '',
+                        message: '',
+                        onConfirm: null,
+                        confirmText: 'Confirm',
+                        cancelText: 'Cancel'
+                    }
+                }
+            },
+            computed: {
+                selectedModelInfo() {
+                    return this.availableModels.find(m => m.id === this.selectedModel);
+                },
+                estimatedVRAM() {
+                    if (!this.selectedModel) return null;
+                    return this.estimateModelVRAM(this.selectedModel);
+                },
+                topModel() {
+                    if (this.usageRanking.models.length > 0) {
+                        return this.usageRanking.models[0];
+                    }
+                    return null;
+                }
+            },
+            mounted() {
+                this.checkConnection();
+                this.loadModels();
+                this.refreshDeployments();
+                this.refreshGpuStatus();
+                this.loadOllamaModels(); // Load Ollama models on startup
+                this.loadGGUFModels(); // Load GGUF models from HuggingFace
+                this.loadUsageRanking(); // Load usage ranking on startup
+                
+                // Auto-refresh every 30 seconds
+                setInterval(() => {
+                    if (this.connectionStatus) {
+                        this.refreshDeployments();
+                        this.refreshGpuStatus();
+                        this.loadOllamaModels(); // Refresh Ollama models too
+                    }
+                }, 30000);
+                
+                // Auto-refresh usage ranking every 10 seconds for dynamic updates
+                setInterval(() => {
+                    if (this.connectionStatus) {
+                        this.loadUsageRanking();
+                    }
+                }, 10000);
+            },
+            methods: {
+                async loadModels() {
+                    this.loadingModels = true;
+                    try {
+                        const response = await axios.get('/api/models');
+                        // API returns {success: true, models: [...], count: N}
+                        this.availableModels = response.data.models || [];
+                        console.log('Models loaded:', this.availableModels.length);
+                    } catch (error) {
+                        console.error('Failed to load models:', error);
+                        // Fallback to basic models
+                        this.availableModels = [
+                            { id: 'gpt2', name: 'GPT-2', description: 'OpenAI GPT-2 model' },
+                            { id: 'microsoft/DialoGPT-medium', name: 'DialoGPT Medium', description: 'Conversational model' }
+                        ];
+                    } finally {
+                        this.loadingModels = false;
+                    }
+                },
+                async checkConnection() {
+                    try {
+                        const response = await axios.get('/api/health');
+                        this.connectionStatus = true;
+                    } catch (error) {
+                        this.connectionStatus = false;
+                        this.showAlert('Failed to connect to Kubernetes cluster', 'error');
+                    }
+                },
+                async refreshDeployments() {
+                    if (!this.connectionStatus) return;
+                    
+                    this.loading = true;
+                    try {
+                        const response = await axios.get('/api/deployments');
+                        // API returns {success: true, models: [...], count: N}
+                        this.deployments = response.data.models || response.data || [];
+                        console.log('Deployments loaded:', this.deployments.length);
+                    } catch (error) {
+                        console.error('Failed to fetch deployments:', error);
+                        this.showAlert('Failed to fetch deployments', 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                async deployModel() {
+                    if (!this.selectedModel || !this.deploymentName) return;
+                    
+                    this.deploying = true;
+                    try {
+                        const response = await axios.post('/api/deploy', {
+                            model_id: this.selectedModel,
+                            deployment_name: this.deploymentName,
+                            memory: this.gpuMemory // Send as number (GB)
+                        });
+                        
+                        const data = response.data;
+                        if (data.success) {
+                            this.showAlert(
+                                `Successfully deployed ${this.selectedModel} with ${data.allocated_vram_gb}GB vRAM (${(data.memory_fraction * 100).toFixed(1)}% of GPU)`, 
+                                'success'
+                            );
+                            this.resetForm();
+                            setTimeout(() => {
+                                this.refreshDeployments();
+                                this.refreshGpuStatus();
+                            }, 2000);
+                        } else {
+                            this.showAlert(data.error || 'Deployment failed', 'error');
+                        }
+                    } catch (error) {
+                        const errorData = error.response?.data;
+                        let message = 'Failed to deploy model';
+                        
+                        if (errorData) {
+                            if (errorData.suggestion) {
+                                message = `${errorData.error}\n\nSuggestion: ${errorData.suggestion}`;
+                            } else {
+                                message = errorData.error || message;
+                            }
+                        }
+                        
+                        this.showAlert(message, 'error');
+                    } finally {
+                        this.deploying = false;
+                    }
+                },
+                deleteSelected() {
+                    if (!this.selectedDeployment) return;
+                    
+                    this.showConfirmModal(
+                        'Delete Deployment',
+                        `Are you sure you want to delete deployment '${this.selectedDeployment}'? This action cannot be undone.`,
+                        () => this.confirmDeleteDeployment(),
+                        'Delete',
+                        'Cancel'
+                    );
+                },
+                async confirmDeleteDeployment() {
+                    this.deleting = true;
+                    try {
+                        await axios.post('/api/delete', {
+                            deployment_name: this.selectedDeployment
+                        });
+                        
+                        this.showAlert('success', `Successfully deleted deployment: ${this.selectedDeployment}`);
+                        this.selectedDeployment = null;
+                        this.refreshDeployments();
+                    } catch (error) {
+                        const message = error.response?.data?.error || 'Failed to delete deployment';
+                        this.showAlert('error', message);
+                    } finally {
+                        this.deleting = false;
+                    }
+                },
+                selectDeployment(name) {
+                    this.selectedDeployment = this.selectedDeployment === name ? null : name;
+                },
+                autoFillName() {
+                    if (!this.selectedModel) return;
+                    
+                    const modelName = this.selectedModel.split('/').pop().toLowerCase();
+                    const cleanName = modelName
+                        .replace(/-gptq|-awq/g, '')
+                        .replace(/[^a-z0-9]/g, '-')
+                        .replace(/-+/g, '-')
+                        .replace(/^-|-$/g, '');
+                    
+                    this.deploymentName = `${cleanName}-deploy`;
+                },
+                formatModelName(modelId) {
+                    const model = this.availableModels.find(m => m.id === modelId);
+                    return model ? model.name : modelId.split('/').pop();
+                },
+                resetForm() {
+                    this.selectedModel = '';
+                    this.deploymentName = '';
+                    this.gpuMemory = 8; // Reset to 8GB
+                },
+                showAlert(type, message) {
+                    // Support both (type, message) and (message, type) for backward compatibility
+                    if (['success', 'error', 'info', 'warning'].includes(type)) {
+                        this.addToast(type, message);
+                    } else {
+                        // Old format: showAlert(message, type)
+                        this.addToast(message, type);
+                    }
+                },
+                addToast(type, message) {
+                    const id = ++this.toastIdCounter;
+                    const toast = { id, type, message };
+                    this.toasts.push(toast);
+                    
+                    // Auto-remove after 5 seconds
+                    setTimeout(() => {
+                        this.removeToast(id);
+                    }, 5000);
+                },
+                removeToast(id) {
+                    const index = this.toasts.findIndex(t => t.id === id);
+                    if (index !== -1) {
+                        this.toasts.splice(index, 1);
+                    }
+                },
+                showConfirmModal(title, message, onConfirm, confirmText = 'Delete', cancelText = 'Cancel') {
+                    this.confirmModal = {
+                        show: true,
+                        title,
+                        message,
+                        onConfirm,
+                        confirmText,
+                        cancelText
+                    };
+                },
+                closeConfirmModal() {
+                    this.confirmModal.show = false;
+                    this.confirmModal.onConfirm = null;
+                },
+                executeConfirm() {
+                    if (this.confirmModal.onConfirm) {
+                        this.confirmModal.onConfirm();
+                    }
+                    this.closeConfirmModal();
+                },
+                async refreshGpuStatus() {
+                    if (!this.connectionStatus) return;
+                    
+                    this.gpuStatus.loading = true;
+                    this.gpuStatus.error = null;
+                    
+                    try {
+                        const response = await axios.get('/api/gpu/status');
+                        if (response.data.success) {
+                            // Handle nested gpu_info structure from backend
+                            const gpuInfo = response.data.gpu_info || response.data;
+                            const totalVram = gpuInfo.total_vram_gb || response.data.total_vram_gb || 0;
+                            const allocatedVram = gpuInfo.allocated_vram_gb || response.data.allocated_vram_gb || 0;
+                            const availableVram = gpuInfo.available_vram_gb || response.data.available_vram_gb || 0;
+                            const utilizationPercent = gpuInfo.utilization_percent || response.data.usage_percent || 0;
+                            
+                            this.gpuStatus.data = {
+                                gpu_info: {
+                                    total_vram_gb: totalVram,
+                                    available_vram_gb: availableVram,
+                                    allocated_vram_gb: allocatedVram,
+                                    utilization_percent: utilizationPercent
+                                },
+                                recommendations: this.getGPURecommendations({
+                                    total_vram_gb: totalVram,
+                                    available_vram_gb: availableVram,
+                                    allocated_vram_gb: allocatedVram,
+                                    gpu_count: gpuInfo.gpu_count || response.data.gpu_count || 1
+                                })
+                            };
+                            console.log('GPU Status Updated:', this.gpuStatus.data);
+                        } else {
+                            this.gpuStatus.error = response.data.error || 'Failed to get GPU status';
+                            console.error('GPU API returned error:', response.data);
+                        }
+                    } catch (error) {
+                        console.error('Failed to get GPU status:', error);
+                        this.gpuStatus.error = 'Failed to connect to GPU status API: ' + (error.response?.data?.error || error.message);
+                        this.gpuStatus.data = null;
+                    } finally {
+                        this.gpuStatus.loading = false;
+                    }
+                },
+                getGPURecommendations(gpuData) {
+                    const recommendations = [];
+                    const totalVram = gpuData.total_vram_gb || 0;
+                    const availableVram = gpuData.available_vram_gb || 0;
+                    
+                    // Avoid division by zero
+                    if (totalVram > 0) {
+                        const availablePercent = (availableVram / totalVram * 100) || 0;
+                        
+                        if (availablePercent < 10) {
+                            recommendations.push('⚠️ GPU memory critically low, consider stopping models');
+                        } else if (availablePercent < 30) {
+                            recommendations.push('⚠️ GPU memory is getting low');
+                        } else if (availablePercent > 80) {
+                            recommendations.push('✅ Plenty of GPU memory available');
+                        }
+                    }
+                    
+                    if (gpuData.gpu_count === 1) {
+                        recommendations.push('ℹ️ Single GPU detected in cluster');
+                    }
+                    
+                    return recommendations;
+                },
+                estimateModelVRAM(modelId) {
+                    const modelLower = modelId.toLowerCase();
+                    
+                    // Parameter-based estimation
+                    if (modelLower.includes('70b') || modelLower.includes('72b')) {
+                        return 14.0;
+                    } else if (modelLower.includes('34b') || modelLower.includes('32b')) {
+                        return 10.0;
+                    } else if (modelLower.includes('13b') || modelLower.includes('14b')) {
+                        return 8.0;
+                    } else if (modelLower.includes('7b') || modelLower.includes('8b')) {
+                        return 6.0;
+                    } else if (modelLower.includes('3b')) {
+                        return 3.5;
+                    } else if (modelLower.includes('1.5b')) {
+                        return 2.0;
+                    } else if (modelLower.includes('1b')) {
+                        return 1.5;
+                    } else if (modelLower.includes('560m') || modelLower.includes('350m')) {
+                        return 1.0;
+                    } else if (modelLower.includes('125m')) {
+                        return 0.5;
+                    }
+                    
+                    // Quantization reduces memory by ~50-75%
+                    if (modelLower.includes('gptq') || modelLower.includes('awq') || 
+                        modelLower.includes('int4') || modelLower.includes('4bit')) {
+                        return 4.0 * 0.6; // 40% of original size
+                    } else if (modelLower.includes('int8') || modelLower.includes('8bit')) {
+                        return 4.0 * 0.75; // 75% of original size
+                    }
+                    
+                    // Default for unknown models
+                    return 4.0;
+                },
+                updateMemoryFraction() {
+                    // This method is called when memory selection changes
+                    // The computed property for memory fraction is automatically updated
+                },
+
+                // Ollama Model Management Methods
+                async loadOllamaModels() {
+                    this.loadingOllamaModels = true;
+                    try {
+                        const response = await axios.get('/api/ollama/models');
+                        console.log('Ollama response:', response.data);
+                        
+                        // Handle both response formats
+                        if (response.data.models) {
+                            // If models array exists, use it
+                            this.ollamaModels = response.data.models;
+                            console.log(`Loaded ${this.ollamaModels.length} Ollama models`);
+                        } else if (Array.isArray(response.data)) {
+                            // If response is directly an array
+                            this.ollamaModels = response.data;
+                            console.log(`Loaded ${this.ollamaModels.length} Ollama models (direct array)`);
+                        } else {
+                            // No models found
+                            this.ollamaModels = [];
+                            console.warn('No models in Ollama response');
+                        }
+                    } catch (error) {
+                        console.error('Error loading Ollama models:', error);
+                        console.error('Error response:', error.response?.data);
+                        this.ollamaModels = [];
+                        this.showAlert('error', 'Failed to load Ollama models: ' + (error.response?.data?.error || error.message));
+                    } finally {
+                        this.loadingOllamaModels = false;
+                    }
+                },
+
+                async pullOllamaModel() {
+                    console.log('pullOllamaModel called, newOllamaModel:', this.newOllamaModel);
+                    if (!this.newOllamaModel.trim()) {
+                        console.warn('Model name is empty');
+                        return;
+                    }
+                    
+                    // Check if model already exists
+                    const modelToCheck = this.newOllamaModel.trim().toLowerCase();
+                    const existingModel = this.ollamaModels.find(m => 
+                        m.name.toLowerCase() === modelToCheck || 
+                        m.name.toLowerCase().startsWith(modelToCheck + ':') ||
+                        modelToCheck.startsWith(m.name.toLowerCase())
+                    );
+                    
+                    if (existingModel) {
+                        this.showAlert('warning', `Model "${existingModel.name}" is already downloaded. Cannot pull the same model twice.`);
+                        return;
+                    }
+                    
+                    const modelName = this.newOllamaModel.trim();
+                    this.pullingOllamaModel = true;
+                    this.modelPullProgress = 0;
+                    this.modelPullStatus = 'Starting pull...';
+                    console.log('Sending pull request for model:', modelName);
+                    
+                    try {
+                        // Start the pull
+                        const response = await axios.post('/api/ollama/pull', {
+                            model: modelName
+                        });
+                        
+                        console.log('Pull started:', response);
+                        this.modelPullStatus = 'Pull initiated, tracking progress...';
+                        
+                        // Poll for progress
+                        const pollProgress = async () => {
+                            try {
+                                const progressResponse = await axios.get(`/api/ollama/pull/progress/${encodeURIComponent(modelName)}`);
+                                const progress = progressResponse.data;
+                                
+                                console.log('Pull progress:', progress);
+                                
+                                // Update UI
+                                this.modelPullProgress = progress.progress || 0;
+                                this.modelPullStatus = progress.message || progress.status || 'Downloading...';
+                                
+                                // Check if complete
+                                if (progress.status === 'success') {
+                                    this.modelPullProgress = 100;
+                                    this.modelPullStatus = `Successfully pulled "${modelName}"!`;
+                                    this.showAlert('success', `Model "${modelName}" pulled successfully!`);
+                                    this.newOllamaModel = '';
+                                    this.selectedGGUFModel = '';
+                                    
+                                    // Reset progress after 2 seconds
+                                    setTimeout(() => {
+                                        this.pullingOllamaModel = false;
+                                        this.modelPullProgress = 0;
+                                    }, 2000);
+                                    
+                                    // Refresh models
+                                    this.loadOllamaModels();
+                                    return; // Stop polling
+                                }
+                                
+                                // Check if error
+                                if (progress.status === 'error') {
+                                    this.modelPullStatus = `Error: ${progress.error || 'Pull failed'}`;
+                                    this.showAlert('error', `Failed to pull model: ${progress.error || 'Unknown error'}`);
+                                    this.pullingOllamaModel = false;
+                                    return; // Stop polling
+                                }
+                                
+                                // Continue polling
+                                setTimeout(pollProgress, 1000);
+                                
+                            } catch (pollError) {
+                                console.error('Error polling progress:', pollError);
+                                // Keep polling even if one request fails
+                                setTimeout(pollProgress, 2000);
+                            }
+                        };
+                        
+                        // Start polling after a short delay
+                        setTimeout(pollProgress, 500);
+                        
+                    } catch (error) {
+                        console.error('Pull error:', error);
+                        console.error('Error response:', error.response);
+                        console.error('Error request:', error.request);
+                        this.modelPullStatus = `Error: ${error.response?.data?.error || error.message}`;
+                        this.showAlert('error', 'Failed to pull model: ' + (error.response?.data?.error || error.message));
+                        this.pullingOllamaModel = false;
+                    }
+                },
+
+                deleteOllamaModel(modelName) {
+                    this.showConfirmModal(
+                        'Delete Model',
+                        `Are you sure you want to delete the model "${modelName}"? This action cannot be undone.`,
+                        () => this.confirmDeleteOllamaModel(modelName),
+                        'Delete',
+                        'Cancel'
+                    );
+                },
+
+                async confirmDeleteOllamaModel(modelName) {
+                    this.deletingOllamaModel = true;
+                    try {
+                        await axios.post('/api/ollama/delete', { model: modelName });
+                        this.showAlert('success', `Model "${modelName}" deleted successfully!`);
+                        await this.loadOllamaModels(); // Refresh the list
+                    } catch (error) {
+                        this.showAlert('error', 'Failed to delete model: ' + (error.response?.data?.error || error.message));
+                    } finally {
+                        this.deletingOllamaModel = false;
+                    }
+                },
+
+                async testOllamaModel(modelName) {
+                    this.testingOllamaModel = true;
+                    this.ollamaTestResult = null;
+                    
+                    try {
+                        this.showAlert('info', `Testing model "${modelName}"... Please wait.`);
+                        const response = await axios.post('/api/ollama/generate', {
+                            model: modelName,
+                            prompt: 'Hello! Please introduce yourself briefly and tell me what you can help with.'
+                        });
+                        
+                        this.ollamaTestResult = {
+                            model: modelName,
+                            response: response.data.response
+                        };
+                        
+                        this.showAlert('success', `Model "${modelName}" tested successfully!`);
+                        
+                        // Refresh ranking (backend tracks usage automatically)
+                        this.loadUsageRanking();
+                        
+                    } catch (error) {
+                        this.showAlert('error', 'Failed to test model: ' + (error.response?.data?.error || error.message));
+                    } finally {
+                        this.testingOllamaModel = false;
+                    }
+                },
+
+                formatSize(bytes) {
+                    if (!bytes) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                },
+
+                estimateModelVRAM(sizeBytes) {
+                    // Estimate VRAM usage based on model file size
+                    // VRAM is typically ~1.2x the model file size for inference
+                    if (!sizeBytes) return '~0';
+                    const sizeGB = sizeBytes / (1024 * 1024 * 1024);
+                    const vramEstimate = sizeGB * 1.2; // Add 20% overhead for inference
+                    return vramEstimate.toFixed(1);
+                },
+
+                formatDate(dateString) {
+                    if (!dateString) return 'Unknown';
+                    return new Date(dateString).toLocaleDateString();
+                },
+
+                // Load GGUF Models from HuggingFace API
+                async loadGGUFModels() {
+                    this.loadingGGUFModels = true;
+                    try {
+                        const response = await axios.get('/api/ollama/gguf-models');
+                        if (response.data.success) {
+                            this.ggufModels = response.data.models;
+                            console.log(`Loaded ${response.data.count} GGUF models from ${response.data.source}`);
+                        }
+                    } catch (error) {
+                        console.warn('Failed to load GGUF models:', error.message);
+                        // Silently fail - dropdown will show empty
+                    } finally {
+                        this.loadingGGUFModels = false;
+                    }
+                },
+
+                // Handle GGUF Model Selection from Dropdown
+                onGGUFModelSelected() {
+                    console.log('onGGUFModelSelected called');
+                    console.log('selectedGGUFModel:', this.selectedGGUFModel);
+                    if (this.selectedGGUFModel) {
+                        // Set model ID directly - it's now a valid Ollama model name
+                        this.newOllamaModel = this.selectedGGUFModel;
+                        console.log('newOllamaModel set to:', this.newOllamaModel);
+                        
+                        // Show message
+                        this.showAlert('info', `Model "${this.selectedGGUFModel}" ready to pull. Click the Pull button or press Enter.`);
+                        
+                        // Focus on the input field
+                        setTimeout(() => {
+                            document.getElementById('ollama-model')?.focus();
+                        }, 100);
+                        
+                        // Reset selection AFTER a tick to allow Vue to process the change
+                        this.$nextTick(() => {
+                            this.selectedGGUFModel = '';
+                            console.log('Dropdown reset');
+                        });
+                    }
+                },
+
+                // Model Usage Ranking Methods
+                async loadUsageRanking() {
+                    this.loadingUsageRanking = true;
+                    try {
+                        const response = await axios.get('/api/usage/ranking');
+                        if (response.data.success) {
+                            this.usageRanking = {
+                                total_requests: response.data.total_requests,
+                                models: response.data.models || [],
+                                timestamp: response.data.timestamp
+                            };
+                            console.log('Usage ranking loaded:', this.usageRanking);
+                        }
+                    } catch (error) {
+                        console.warn('Failed to load usage ranking:', error.message);
+                        // Silently fail - table will show empty state
+                    } finally {
+                        this.loadingUsageRanking = false;
+                    }
+                },
+
+                resetUsageStats() {
+                    this.showConfirmModal(
+                        'Reset Statistics',
+                        'Are you sure you want to reset all usage statistics? This action cannot be undone.',
+                        () => this.confirmResetUsageStats(),
+                        'Reset',
+                        'Cancel'
+                    );
+                },
+
+                async confirmResetUsageStats() {
+                    try {
+                        await axios.post('/api/usage/reset');
+                        this.usageRanking = {
+                            total_requests: 0,
+                            models: [],
+                            timestamp: null
+                        };
+                        this.showAlert('success', 'Usage statistics have been reset');
+                    } catch (error) {
+                        this.showAlert('error', 'Failed to reset usage statistics');
+                    }
+                },
+
+                getRankClass(rank) {
+                    if (rank === 1) return 'rank-1';
+                    if (rank === 2) return 'rank-2';
+                    if (rank === 3) return 'rank-3';
+                    return 'rank-other';
+                },
+
+                formatLastUsed(dateString) {
+                    if (!dateString) return 'Never';
+                    
+                    const date = new Date(dateString);
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const diffHours = Math.floor(diffMs / 3600000);
+                    const diffDays = Math.floor(diffMs / 86400000);
+                    
+                    if (diffMins < 1) return 'Just now';
+                    if (diffMins < 60) return `${diffMins}m ago`;
+                    if (diffHours < 24) return `${diffHours}h ago`;
+                    if (diffDays < 7) return `${diffDays}d ago`;
+                    
+                    return date.toLocaleDateString();
+                },
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

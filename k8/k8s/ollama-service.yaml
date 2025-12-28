@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: model-hosting
+  labels:
+    app: ollama
+    release: ollama
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama
+    release: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP

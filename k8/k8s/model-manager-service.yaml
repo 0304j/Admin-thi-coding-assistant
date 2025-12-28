@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-manager-service
+  namespace: model-hosting
+  labels:
+    app: model-manager
+    release: model-manager
+spec:
+  type: ClusterIP
+  selector:
+    app: model-manager
+    release: model-manager
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: http

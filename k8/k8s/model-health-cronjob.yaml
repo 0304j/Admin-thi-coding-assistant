@@ -1,0 +1,226 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-health-script
+  namespace: model-hosting
+data:
+  check-models.sh: |
+    #!/bin/sh
+    set -e
+    
+    OLLAMA_URL="${OLLAMA_URL:-http://ollama-service.model-hosting.svc.cluster.local:11434}"
+    MODEL_MANAGER_URL="${MODEL_MANAGER_URL:-http://model-manager-service.model-hosting.svc.cluster.local:8080}"
+    
+    echo "================================================"
+    echo "Dynamic Model Health Check - $(date)"
+    echo "================================================"
+    echo "Ollama URL: $OLLAMA_URL"
+    echo "Model Manager URL: $MODEL_MANAGER_URL"
+    echo ""
+    
+    # Check if Ollama is reachable
+    echo "Step 1: Checking Ollama connectivity..."
+    if ! curl -sf "$OLLAMA_URL/api/tags" > /dev/null 2>&1; then
+        echo "ERROR: Cannot connect to Ollama at $OLLAMA_URL"
+        exit 1
+    fi
+    echo "✓ Ollama is reachable"
+    echo ""
+    
+    # DYNAMIC: Get expected models from Model Manager API
+    # This fetches ALL models that have been pulled via the Model Manager UI
+    echo "Step 2: Fetching expected models from Model Manager..."
+    EXPECTED_MODELS_JSON=$(curl -sf "$MODEL_MANAGER_URL/api/ollama/models" 2>/dev/null || echo '{"models":[]}')
+    
+    if echo "$EXPECTED_MODELS_JSON" | jq -e '.models' > /dev/null 2>&1; then
+        EXPECTED_MODELS=$(echo "$EXPECTED_MODELS_JSON" | jq -r '.models[].name' 2>/dev/null || echo "")
+        EXPECTED_COUNT=$(echo "$EXPECTED_MODELS" | grep -c . || echo "0")
+        echo "✓ Found $EXPECTED_COUNT models registered in Model Manager"
+    else
+        echo "WARNING: Could not fetch models from Model Manager, falling back to Ollama list"
+        EXPECTED_MODELS=""
+    fi
+    echo ""
+    
+    # Get list of currently available models in Ollama
+    echo "Step 3: Fetching models currently in Ollama..."
+    OLLAMA_RESPONSE=$(curl -sf "$OLLAMA_URL/api/tags" 2>/dev/null || echo '{"models":[]}')
+    AVAILABLE_MODELS=$(echo "$OLLAMA_RESPONSE" | jq -r '.models[].name' 2>/dev/null || echo "")
+    
+    if [ -z "$AVAILABLE_MODELS" ]; then
+        echo "WARNING: No models found in Ollama"
+        AVAILABLE_COUNT=0
+    else
+        AVAILABLE_COUNT=$(echo "$AVAILABLE_MODELS" | grep -c . || echo "0")
+        echo "✓ Found $AVAILABLE_COUNT models in Ollama:"
+        echo "$AVAILABLE_MODELS" | while read model; do
+            echo "  - $model"
+        done
+    fi
+    echo ""
+    
+    # Verify each expected model exists in Ollama
+    echo "Step 4: Verifying model availability..."
+    MISSING_MODELS=""
+    VERIFIED_COUNT=0
+    
+    if [ -n "$EXPECTED_MODELS" ]; then
+        echo "$EXPECTED_MODELS" | while read expected_model; do
+            if [ -n "$expected_model" ]; then
+                # Check if model exists (exact match)
+                if echo "$AVAILABLE_MODELS" | grep -q "^${expected_model}$"; then
+                    echo "✓ $expected_model - OK"
+                else
+                    echo "✗ $expected_model - MISSING from Ollama!"
+                fi
+            fi
+        done
+        
+        # Calculate missing models for re-pull
+        for expected_model in $EXPECTED_MODELS; do
+            if [ -n "$expected_model" ]; then
+                if ! echo "$AVAILABLE_MODELS" | grep -q "^${expected_model}$"; then
+                    MISSING_MODELS="$MISSING_MODELS $expected_model"
+                fi
+            fi
+        done
+    else
+        echo "No expected models to verify (Model Manager list empty)"
+        echo "All models in Ollama are considered valid"
+    fi
+    echo ""
+    
+    # If AUTO_PULL is enabled, re-pull missing models
+    if [ -n "$MISSING_MODELS" ] && [ "${AUTO_PULL:-true}" = "true" ]; then
+        echo "Step 5: Auto-pulling missing models..."
+        for model in $MISSING_MODELS; do
+            model=$(echo "$model" | xargs)
+            if [ -n "$model" ]; then
+                echo "Re-pulling $model..."
+                PULL_RESULT=$(curl -sf -X POST "$OLLAMA_URL/api/pull" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\": \"$model\", \"stream\": false}" \
+                    --max-time 900 2>&1 || echo "FAILED")
+                
+                if echo "$PULL_RESULT" | grep -q "FAILED"; then
+                    echo "  ✗ Failed to pull $model"
+                else
+                    echo "  ✓ Successfully pulled $model"
+                fi
+            fi
+        done
+    elif [ -n "$MISSING_MODELS" ]; then
+        echo "Step 5: WARNING - Missing models detected!"
+        echo "Missing models:$MISSING_MODELS"
+        echo "AUTO_PULL is disabled. Enable it to auto-recover."
+    else
+        echo "Step 5: All models verified ✓"
+    fi
+    echo ""
+    
+    # Test inference on a random available model
+    if [ "${TEST_INFERENCE:-false}" = "true" ] && [ -n "$AVAILABLE_MODELS" ]; then
+        echo "Step 6: Testing inference..."
+        TEST_MODEL=$(echo "$AVAILABLE_MODELS" | head -1)
+        
+        RESPONSE=$(curl -sf -X POST "$OLLAMA_URL/api/generate" \
+            -H "Content-Type: application/json" \
+            -d "{\"model\": \"$TEST_MODEL\", \"prompt\": \"Reply with OK\", \"stream\": false}" \
+            --max-time 60 2>/dev/null || echo "")
+        
+        if echo "$RESPONSE" | jq -e '.response' > /dev/null 2>&1; then
+            echo "✓ Inference test passed with $TEST_MODEL"
+        else
+            echo "✗ Inference test failed with $TEST_MODEL"
+        fi
+        echo ""
+    fi
+    
+    # Report health status back to Model Manager (optional)
+    if [ "${REPORT_STATUS:-false}" = "true" ]; then
+        echo "Reporting health status to Model Manager..."
+        curl -sf -X POST "$MODEL_MANAGER_URL/api/health/report" \
+            -H "Content-Type: application/json" \
+            -d "{\"source\": \"cronjob\", \"available_models\": $AVAILABLE_COUNT, \"missing_models\": \"$MISSING_MODELS\", \"timestamp\": \"$(date -Iseconds)\"}" \
+            --max-time 5 2>/dev/null || echo "Could not report status"
+    fi
+    
+    echo "================================================"
+    echo "Health check completed at $(date)"
+    echo "================================================"
+    
+    # Exit with error if there are missing models and AUTO_PULL is disabled
+    if [ -n "$MISSING_MODELS" ] && [ "${AUTO_PULL:-true}" != "true" ]; then
+        exit 1
+    fi
+    
+    exit 0
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: model-health-check
+  namespace: model-hosting
+  labels:
+    app: model-health-check
+spec:
+  # Run every 5 minutes
+  schedule: "*/5 * * * *"
+  # Keep last 3 successful and 1 failed job
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  # Don't run if previous job is still running
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      # Auto-delete job after 1 hour
+      ttlSecondsAfterFinished: 3600
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: model-health-check
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: health-checker
+            image: curlimages/curl:8.5.0
+            command: ["/bin/sh", "/scripts/check-models.sh"]
+            env:
+            - name: OLLAMA_URL
+              value: "http://ollama-service.model-hosting.svc.cluster.local:11434"
+            - name: MODEL_MANAGER_URL
+              value: "http://model-manager-service.model-hosting.svc.cluster.local:8080"
+            # DYNAMIC: Models are fetched from Model Manager API automatically!
+            # No static list needed - new models you pull will be verified too
+            # Set to "true" to automatically re-pull missing models (recommended)
+            - name: AUTO_PULL
+              value: "true"
+            # Set to "true" to run inference test after verification
+            - name: TEST_INFERENCE
+              value: "false"
+            # Set to "true" to report health status back to Model Manager
+            - name: REPORT_STATUS
+              value: "false"
+            volumeMounts:
+            - name: script
+              mountPath: /scripts
+            resources:
+              requests:
+                memory: "64Mi"
+                cpu: "50m"
+              limits:
+                memory: "128Mi"
+                cpu: "100m"
+          volumes:
+          - name: script
+            configMap:
+              name: model-health-script
+              defaultMode: 0755
+---
+# Optional: ServiceAccount for the CronJob (if you need RBAC)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: model-health-checker
+  namespace: model-hosting
