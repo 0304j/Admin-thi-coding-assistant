@@ -1,4 +1,4 @@
---# Administration Implementation for thiCodingAssistant
+---# Administration Implementation for thiCodingAssistant
 This repository contains the administration part implementation of the thiCodingAssistant project.
 The thiCodingAssistant project (source): https://github.com/Balahari15/thiCodingAssistant
 
@@ -31,7 +31,7 @@ Admin/
     └── GPU_TIME_SLICING_GUIDE.md # Detailed GPU configuration
 ```
 
----# Kubernetes Model Manager
+## Kubernetes Model Manager
 
 A production-ready web application for managing Ollama language models on Kubernetes with GPU support. This solution provides a Vue.js frontend and Flask backend for pulling, testing, and monitoring LLM models, with built-in GPU time-slicing for efficient resource utilization.
 
