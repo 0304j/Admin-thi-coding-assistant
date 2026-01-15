@@ -10,7 +10,9 @@ The thiCodingAssistant project (source): https://github.com/Balahari15/thiCoding
 3. [Deploying to Kubernetes](#deploying-to-kubernetes)
 4. [GPU Time-Slicing Configuration](#gpu-time-slicing-configuration)
 5. [Accessing the Application](#accessing-the-application)
-6. [Operations Guide](#operations-guide)## Project Structure
+6. [Operations Guide](#operations-guide)
+
+## Project Structure
 
 ```
 Admin/
