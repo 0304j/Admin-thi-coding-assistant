@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Kubernetes Model Manager
 
 A production-ready web application for managing Ollama language models on Kubernetes with GPU support. This solution provides a Vue.js frontend and Flask backend for pulling, testing, and monitoring LLM models, with built-in GPU time-slicing for efficient resource utilization.
@@ -438,3 +439,6 @@ For issues or questions, verify the following:
 2. **GPU is detected:** `nvidia-smi`
 3. **Pods are healthy:** `kubectl get pods -n model-hosting`
 4. **Check application logs:** `kubectl logs -f deployment/model-manager -n model-hosting`
+=======
+# Admin-thi-coding-assistant
+>>>>>>> 4a92efa1cce7323df125778841933783b41b1b22
