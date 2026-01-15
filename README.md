@@ -1,4 +1,4 @@
----# Administration Implementation for thiCodingAssistant
+# Administration Implementation for thiCodingAssistant
 This repository contains the administration part implementation of the thiCodingAssistant project.
 The thiCodingAssistant project (source): https://github.com/Balahari15/thiCodingAssistant
 
