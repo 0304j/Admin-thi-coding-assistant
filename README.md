@@ -1,5 +1,37 @@
-<<<<<<< HEAD
-# Kubernetes Model Manager
+--# Administration Implementation for thiCodingAssistant
+This repository contains the administration part implementation of the thiCodingAssistant project.
+The thiCodingAssistant project (source): https://github.com/Balahari15/thiCodingAssistant
+
+## Project Structure
+
+```
+Admin/
+├── Dockerfile                    # Multi-stage build for Model Manager
+├── README.md                     # This documentation
+├── Model_manager/
+│   ├── requirements.txt          # Python dependencies
+│   ├── Backend/
+│   │   ├── vue-api-server.py     # Flask API server
+│   │   ├── k8s_client.py         # Kubernetes client utilities
+│   │   └── BACKEND_DOCUMENTATION.md
+│   └── Frontend/
+│       ├── vue-model-manager.html # Vue.js frontend
+│       └── FRONTEND_DOCUMENTATION.md
+└── k8/k8s/
+    ├── README.md                 # Kubernetes resources documentation
+    ├── namespace.yaml            # Namespace definition
+    ├── ollama-deployment.yaml    # Ollama deployment with GPU
+    ├── ollama-service.yaml       # Ollama service
+    ├── model-manager-deployment.yaml
+    ├── model-manager-service.yaml
+    ├── model-manager-nodeport.yaml
+    ├── model-health-check-cronjob.yaml
+    ├── model-health-script-configmap.yaml
+    ├── model-usage-stats-configmap.yaml
+    └── GPU_TIME_SLICING_GUIDE.md # Detailed GPU configuration
+```
+
+---# Kubernetes Model Manager
 
 A production-ready web application for managing Ollama language models on Kubernetes with GPU support. This solution provides a Vue.js frontend and Flask backend for pulling, testing, and monitoring LLM models, with built-in GPU time-slicing for efficient resource utilization.
 
@@ -36,13 +68,13 @@ This project enables teams to:
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [K3s Cluster Setup](#k3s-cluster-setup)
-3. [Building the Docker Image](#building-the-docker-image)
-4. [Deploying to Kubernetes](#deploying-to-kubernetes)
-5. [GPU Time-Slicing Configuration](#gpu-time-slicing-configuration)
-6. [Accessing the Application](#accessing-the-application)
-7. [Operations Guide](#operations-guide)
+
+1. [K3s Cluster Setup](#k3s-cluster-setup)
+2. [Building the Docker Image](#building-the-docker-image)
+3. [Deploying to Kubernetes](#deploying-to-kubernetes)
+4. [GPU Time-Slicing Configuration](#gpu-time-slicing-configuration)
+5. [Accessing the Application](#accessing-the-application)
+6. [Operations Guide](#operations-guide)
 
 ---
 
@@ -400,36 +432,7 @@ kubectl exec -it deployment/model-manager -n model-hosting -- curl http://ollama
 
 ---
 
-## Project Structure
 
-```
-Admin/
-├── Dockerfile                    # Multi-stage build for Model Manager
-├── README.md                     # This documentation
-├── Model_manager/
-│   ├── requirements.txt          # Python dependencies
-│   ├── Backend/
-│   │   ├── vue-api-server.py     # Flask API server
-│   │   ├── k8s_client.py         # Kubernetes client utilities
-│   │   └── BACKEND_DOCUMENTATION.md
-│   └── Frontend/
-│       ├── vue-model-manager.html # Vue.js frontend
-│       └── FRONTEND_DOCUMENTATION.md
-└── k8/k8s/
-    ├── README.md                 # Kubernetes resources documentation
-    ├── namespace.yaml            # Namespace definition
-    ├── ollama-deployment.yaml    # Ollama deployment with GPU
-    ├── ollama-service.yaml       # Ollama service
-    ├── model-manager-deployment.yaml
-    ├── model-manager-service.yaml
-    ├── model-manager-nodeport.yaml
-    ├── model-health-check-cronjob.yaml
-    ├── model-health-script-configmap.yaml
-    ├── model-usage-stats-configmap.yaml
-    └── GPU_TIME_SLICING_GUIDE.md # Detailed GPU configuration
-```
-
----
 
 ## Support
 
