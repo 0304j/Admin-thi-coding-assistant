@@ -2,7 +2,15 @@
 This repository contains the administration part implementation of the thiCodingAssistant project.
 The thiCodingAssistant project (source): https://github.com/Balahari15/thiCodingAssistant
 
-## Project Structure
+## Table of Contents
+
+
+1. [K3s Cluster Setup](#k3s-cluster-setup)
+2. [Building the Docker Image](#building-the-docker-image)
+3. [Deploying to Kubernetes](#deploying-to-kubernetes)
+4. [GPU Time-Slicing Configuration](#gpu-time-slicing-configuration)
+5. [Accessing the Application](#accessing-the-application)
+6. [Operations Guide](#operations-guide)## Project Structure
 
 ```
 Admin/
@@ -66,19 +74,11 @@ This project enables teams to:
 
 ---
 
-## Table of Contents
 
-
-1. [K3s Cluster Setup](#k3s-cluster-setup)
-2. [Building the Docker Image](#building-the-docker-image)
-3. [Deploying to Kubernetes](#deploying-to-kubernetes)
-4. [GPU Time-Slicing Configuration](#gpu-time-slicing-configuration)
-5. [Accessing the Application](#accessing-the-application)
-6. [Operations Guide](#operations-guide)
 
 ---
 
-## Prerequisites
+
 
 
 
